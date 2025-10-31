@@ -9,9 +9,9 @@ app = Application().start("notepad.exe")
 time.sleep(2)
 
 # 連接到已開啟的應用程式，使用 win32 後端
-app = Application(backend="win32").connect(title_re=".*.*")
+app = Application(backend="win32").connect(title_re=".*Notepad.*")
 
 # 操作視窗與元件
-notepad = app.window(title_re=".*.*")
+notepad = app.window(title_re=".*Notepad.*")
 edit = notepad.Edit
 edit.type_keys("Hello, pywinauto!")
