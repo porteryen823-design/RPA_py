@@ -21,12 +21,12 @@ except ImportError:
     PYQT5_AVAILABLE = False
     print("警告: PyQt5 未安裝，滑鼠動作設定功能將無法使用")
 try:
-    from googletrans import Translator
-    translator = Translator()
+    from translate import Translator
+    translator = Translator(to_lang="en")
     TRANSLATION_AVAILABLE = True
 except ImportError:
     TRANSLATION_AVAILABLE = False
-    print("警告: googletrans 未安裝，翻譯功能將無法使用")
+    print("警告: translate 未安裝，翻譯功能將無法使用")
 
 def screen_tools():
     # 截取整個螢幕作為底圖
@@ -140,22 +140,24 @@ def screen_tools():
         menu = tk.Menu(root, tearoff=0)
         menu.add_command(label="1. 標示第一點", command=lambda: mark_point1(event))
         menu.add_command(label="2. 標示第二點 (並繪出兩點矩形)", command=lambda: mark_point2(event))
-        menu.add_command(label="3. 存檔", command=save_image)
-        menu.add_command(label="4. 清除繪製矩形", command=clear_rectangles)
+        menu.add_command(label="3. 存整個螢幕", command=save_full_screen)
+        menu.add_command(label="4. 存框出矩形", command=save_rectangle)
+        menu.add_command(label="5. 存檔 (帶標記)", command=save_image)
+        menu.add_command(label="6. 清除繪製矩形", command=clear_rectangles)
         menu.add_separator()
-        menu.add_command(label="5. 存十字線座標", command=lambda: save_cross_coords(event))
+        menu.add_command(label="7. 存十字線座標", command=lambda: save_cross_coords(event))
         if PYQT5_AVAILABLE:
-            menu.add_command(label="7. 滑鼠動作設定", command=lambda: open_mouse_settings())
-            menu.add_command(label="11. 隱藏滑鼠設定", command=hide_mouse_settings)
+            menu.add_command(label="9. 滑鼠動作設定", command=lambda: open_mouse_settings())
+            menu.add_command(label="13. 隱藏滑鼠設定", command=hide_mouse_settings)
         else:
-            menu.add_command(label="7. 滑鼠動作設定 (未安裝 PyQt5)", state="disabled")
-        menu.add_command(label="6. 重新擷取螢幕", command=refresh_screenshot)
-        menu.add_command(label="8. 設定粉紅色十字線", command=set_pink_cross)
-        menu.add_command(label="9. 設定藍色十字線", command=set_blue_cross)
+            menu.add_command(label="9. 滑鼠動作設定 (未安裝 PyQt5)", state="disabled")
+        menu.add_command(label="8. 重新擷取螢幕", command=refresh_screenshot)
+        menu.add_command(label="10. 設定粉紅色十字線", command=set_pink_cross)
+        menu.add_command(label="11. 設定藍色十字線", command=set_blue_cross)
         if point1 and point2 and OCR_AVAILABLE:
-            menu.add_command(label="10. OCR 功能", command=perform_ocr)
+            menu.add_command(label="12. OCR 功能", command=perform_ocr)
         elif not OCR_AVAILABLE:
-            menu.add_command(label="10. OCR 功能 (未安裝)", state="disabled")
+            menu.add_command(label="12. OCR 功能 (未安裝)", state="disabled")
         menu.post(event.x_root, event.y_root)
 
     def mark_point1(event):
@@ -174,10 +176,38 @@ def screen_tools():
         if point1:
             draw_rectangle(point1, point2)
 
+    def save_full_screen():
+        # 儲存整個螢幕截圖
+        timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+        save_path = f"image_temp/full_screenshot_{timestamp}.png"
+        os.makedirs("image_temp", exist_ok=True)
+        full_screenshot.save(save_path)
+        print(f"已儲存整個螢幕: {save_path}")
+
+    def save_rectangle():
+        if not point1 or not point2:
+            print("需要先標記兩個點來定義矩形區域")
+            return
+        # 計算矩形區域
+        x1, y1 = point1
+        x2, y2 = point2
+        left = min(x1, x2)
+        top = min(y1, y2)
+        right = max(x1, x2)
+        bottom = max(y1, y2)
+        # 從螢幕截圖中擷取區域
+        region_img = full_screenshot.crop((left, top, right, bottom))
+        timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+        save_path = f"image_temp/rectangle_{timestamp}.png"
+        os.makedirs("image_temp", exist_ok=True)
+        region_img.save(save_path)
+        print(f"已儲存矩形區域: {save_path}")
+
     def save_image():
         # 儲存當前 canvas 內容為圖片
         timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
         save_path = f"image_temp/screenshot_with_marks_{timestamp}.png"
+        os.makedirs("image_temp", exist_ok=True)
         # 創建新的圖片來儲存 canvas 內容
         img = Image.new("RGB", (full_screenshot.width, full_screenshot.height), "white")
         draw_img = ImageDraw.Draw(img)
@@ -533,24 +563,110 @@ def screen_tools():
 
             if text:
                 print(f"OCR 辨識結果:\n{text}")
+
+                # 翻譯功能移至按鈕觸發，不在這裡自動翻譯
+                translated_text = text
+
                 # 顯示結果視窗
                 result_window = tk.Toplevel(root)
                 result_window.title("OCR 辨識結果")
-                result_window.geometry("400x300")
+                result_window.geometry("600x500")
 
-                text_widget = tk.Text(result_window, wrap=tk.WORD, padx=10, pady=10)
-                text_widget.insert(tk.END, text)
-                text_widget.config(state=tk.DISABLED)
-                text_widget.pack(expand=True, fill=tk.BOTH)
+                # 原始文字
+                original_label = tk.Label(result_window, text="原始文字:", font=("Arial", 10, "bold"))
+                original_label.pack(anchor=tk.W, padx=10, pady=(10,0))
 
-                # 複製到剪貼簿按鈕
-                def copy_to_clipboard():
+                original_text_widget = tk.Text(result_window, wrap=tk.WORD, padx=10, pady=10, height=6)
+                original_text_widget.insert(tk.END, text)
+                original_text_widget.config(state=tk.DISABLED)
+                original_text_widget.pack(fill=tk.X, padx=10)
+
+                # 翻譯結果文字框（初始為空）
+                translated_label = tk.Label(result_window, text="英文翻譯:", font=("Arial", 10, "bold"))
+                translated_label.pack(anchor=tk.W, padx=10, pady=(10,0))
+
+                translated_text_widget = tk.Text(result_window, wrap=tk.WORD, padx=10, pady=10, height=6)
+                translated_text_widget.insert(tk.END, "")
+                translated_text_widget.config(state=tk.DISABLED)
+                translated_text_widget.pack(fill=tk.X, padx=10)
+
+                # 按鈕區域
+                button_frame = tk.Frame(result_window)
+                button_frame.pack(fill=tk.X, padx=10, pady=10)
+
+                # 複製原始文字按鈕
+                def copy_original():
                     root.clipboard_clear()
                     root.clipboard_append(text)
-                    print("已複製到剪貼簿")
+                    print("已複製原始文字到剪貼簿")
 
-                copy_btn = tk.Button(result_window, text="複製到剪貼簿", command=copy_to_clipboard)
-                copy_btn.pack(pady=5)
+                copy_original_btn = tk.Button(button_frame, text="複製原始文字", command=copy_original)
+                copy_original_btn.pack(side=tk.LEFT, padx=(0,10))
+
+                # 複製翻譯文字按鈕
+                def copy_translated():
+                    translated_content = translated_text_widget.get("1.0", tk.END).strip()
+                    if translated_content:
+                        root.clipboard_clear()
+                        root.clipboard_append(translated_content)
+                        print("已複製翻譯文字到剪貼簿")
+                    else:
+                        print("沒有翻譯內容可複製")
+
+                copy_translated_btn = tk.Button(button_frame, text="複製英文翻譯", command=copy_translated)
+                copy_translated_btn.pack(side=tk.LEFT, padx=(0,10))
+
+                # 翻譯按鈕區域
+                translate_frame = tk.Frame(result_window)
+                translate_frame.pack(fill=tk.X, padx=10, pady=(0,10))
+
+                def translate_to_english(from_lang="auto"):
+                    if not TRANSLATION_AVAILABLE:
+                        print("翻譯功能未安裝")
+                        return
+
+                    try:
+                        print(f"正在翻譯文字 (來源語言: {from_lang})...")
+                        if from_lang == "auto":
+                            from translate import Translator as TranslateTranslator
+                            specific_translator = TranslateTranslator(to_lang="en")
+                            translation_result = specific_translator.translate(text)
+                        else:
+                            from translate import Translator as TranslateTranslator
+                            specific_translator = TranslateTranslator(from_lang=from_lang, to_lang="en")
+                            translation_result = specific_translator.translate(text)
+
+                        # 更新翻譯文字框
+                        translated_text_widget.config(state=tk.NORMAL)
+                        translated_text_widget.delete("1.0", tk.END)
+                        translated_text_widget.insert(tk.END, translation_result)
+                        translated_text_widget.config(state=tk.DISABLED)
+
+                        print(f"翻譯完成: {translation_result}")
+
+                    except Exception as e:
+                        print(f"翻譯失敗: {e}")
+                        import traceback
+                        traceback.print_exc()
+
+                # 繁體中文翻譯按鈕
+                if TRANSLATION_AVAILABLE:
+                    traditional_btn = tk.Button(translate_frame, text="繁體中文翻英文",
+                                              command=lambda: translate_to_english("zh-TW"))
+                    traditional_btn.pack(side=tk.LEFT, padx=(0,10))
+
+                    # 簡體中文翻譯按鈕
+                    simplified_btn = tk.Button(translate_frame, text="簡體中文翻英文",
+                                             command=lambda: translate_to_english("zh-CN"))
+                    simplified_btn.pack(side=tk.LEFT, padx=(0,10))
+
+                    # 自動檢測翻譯按鈕
+                    auto_translate_btn = tk.Button(translate_frame, text="自動翻譯",
+                                                 command=lambda: translate_to_english("auto"))
+                    auto_translate_btn.pack(side=tk.LEFT)
+                else:
+                    no_translate_label = tk.Label(translate_frame, text="翻譯功能未安裝", fg="red")
+                    no_translate_label.pack(side=tk.LEFT)
             else:
                 print("OCR 未辨識到文字")
 
