@@ -12,13 +12,21 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
     print("警告: pytesseract 未安裝，OCR 功能將無法使用")
+print(f"OCR_AVAILABLE 狀態: {OCR_AVAILABLE}") # 新增這行來印出狀態
 try:
-    from PyQt5.QtWidgets import QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QComboBox, QHeaderView, QPushButton, QHBoxLayout
+    from PyQt5.QtWidgets import QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QComboBox, QHeaderView, QPushButton, QHBoxLayout, QCheckBox
     from PyQt5.QtCore import Qt
     PYQT5_AVAILABLE = True
 except ImportError:
     PYQT5_AVAILABLE = False
     print("警告: PyQt5 未安裝，滑鼠動作設定功能將無法使用")
+try:
+    from googletrans import Translator
+    translator = Translator()
+    TRANSLATION_AVAILABLE = True
+except ImportError:
+    TRANSLATION_AVAILABLE = False
+    print("警告: googletrans 未安裝，翻譯功能將無法使用")
 
 def screen_tools():
     # 截取整個螢幕作為底圖
@@ -40,6 +48,8 @@ def screen_tools():
     coord_label = tk.Label(root, text="(0, 0)", font=("Arial", 12), bg="yellow")
     coord_label.pack()
 
+    mouse_window = None  # 滑鼠設定視窗實例
+    app = None  # QApplication 實例
     # 記錄點的變數
     point1 = None
     point2 = None
@@ -135,7 +145,8 @@ def screen_tools():
         menu.add_separator()
         menu.add_command(label="5. 存十字線座標", command=lambda: save_cross_coords(event))
         if PYQT5_AVAILABLE:
-            menu.add_command(label="7. 滑鼠動作設定", command=open_mouse_settings)
+            menu.add_command(label="7. 滑鼠動作設定", command=lambda: open_mouse_settings())
+            menu.add_command(label="11. 隱藏滑鼠設定", command=hide_mouse_settings)
         else:
             menu.add_command(label="7. 滑鼠動作設定 (未安裝 PyQt5)", state="disabled")
         menu.add_command(label="6. 重新擷取螢幕", command=refresh_screenshot)
@@ -203,17 +214,54 @@ def screen_tools():
         print("十字線顏色已設定為粉紅色")
 
     def open_mouse_settings():
-        # 創建 PyQt5 應用程式
-        app = QApplication.instance()
-        if app is None:
-            app = QApplication([])
+        nonlocal mouse_window, app
+        print("正在開啟滑鼠動作設定視窗...")
+        try:
+            # 如果視窗已經存在，只顯示它
+            if mouse_window is not None:
+                mouse_window.show()
+                mouse_window.raise_()
+                print("滑鼠設定視窗已重新顯示")
+                return
 
-        # 創建滑鼠設定視窗
-        mouse_window = MouseSettingsWindow(cross_coords)
-        mouse_window.show()
+            # 創建 PyQt5 應用程式
+            app = QApplication.instance()
+            if app is None:
+                app = QApplication([])
+                print("已創建新的 QApplication 實例")
 
-        # 啟動事件循環（非阻塞）
-        app.processEvents()
+            # 創建滑鼠設定視窗
+            mouse_window = MouseSettingsWindow(cross_coords)
+            mouse_window.show()
+            print("滑鼠設定視窗已顯示")
+
+            # 啟動事件循環（非阻塞）
+            app.processEvents()
+
+            # 保持視窗運行（在背景執行事件循環）
+            import threading
+            def run_event_loop():
+                try:
+                    app.exec_()
+                except Exception as e:
+                    print(f"事件循環錯誤: {e}")
+
+            event_thread = threading.Thread(target=run_event_loop)
+            event_thread.daemon = False  # 改為非守護執行緒
+            event_thread.start()
+
+        except Exception as e:
+            print(f"開啟滑鼠設定視窗時發生錯誤: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def hide_mouse_settings():
+        nonlocal mouse_window
+        if mouse_window is not None:
+            mouse_window.hide()
+            print("滑鼠設定視窗已隱藏")
+        else:
+            print("沒有滑鼠設定視窗可以隱藏")
 
     class MouseSettingsWindow(QMainWindow):
         def __init__(self, cross_coords):
@@ -233,8 +281,8 @@ def screen_tools():
             layout = QVBoxLayout(central_widget)
 
             # 創建表格
-            self.table = QTableWidget(10, 5)  # 10 行，5 列
-            self.table.setHorizontalHeaderLabels(['動作類型', 'X座標', 'Y座標', '延遲時間', '點擊類型'])
+            self.table = QTableWidget(10, 6)  # 10 行，6 列
+            self.table.setHorizontalHeaderLabels(['Enabled', '動作類型', 'X座標', 'Y座標', '延遲時間', '點擊類型'])
 
             # 設定表格屬性
             header = self.table.horizontalHeader()
@@ -245,43 +293,66 @@ def screen_tools():
             click_types = ['', 'left', 'right']
 
             for row in range(10):
+                # Enabled checkbox
+                enabled_checkbox = QCheckBox()
+                if row == 0:  # 第一行預設為 true
+                    enabled_checkbox.setChecked(True)
+                else:  # 其他行預設為 false
+                    enabled_checkbox.setChecked(False)
+                self.table.setCellWidget(row, 0, enabled_checkbox)
+
                 # 動作類型下拉選單
                 action_combo = QComboBox()
                 action_combo.addItems(action_types)
                 if row == 0:  # 第一行預設為 moveTo
                     action_combo.setCurrentText('moveTo')
-                self.table.setCellWidget(row, 0, action_combo)
+                self.table.setCellWidget(row, 1, action_combo)
 
                 # X座標
                 x_coord = ""
                 if row == 0 and self.cross_coords:  # 第一行使用十字線座標
                     x_coord = str(self.cross_coords[-1][0])  # 使用最後一個座標
                 x_item = QTableWidgetItem(x_coord)
-                self.table.setItem(row, 1, x_item)
+                self.table.setItem(row, 2, x_item)
 
                 # Y座標
                 y_coord = ""
                 if row == 0 and self.cross_coords:  # 第一行使用十字線座標
                     y_coord = str(self.cross_coords[-1][1])  # 使用最後一個座標
                 y_item = QTableWidgetItem(y_coord)
-                self.table.setItem(row, 2, y_item)
+                self.table.setItem(row, 3, y_item)
 
                 # 延遲時間
                 delay = "0.2"  # 預設 0.2s
                 delay_item = QTableWidgetItem(delay)
-                self.table.setItem(row, 3, delay_item)
+                self.table.setItem(row, 4, delay_item)
 
                 # 點擊類型下拉選單
                 click_combo = QComboBox()
                 click_combo.addItems(click_types)
                 if row == 1:  # 第二行預設為 left
                     click_combo.setCurrentText('left')
-                self.table.setCellWidget(row, 4, click_combo)
+                self.table.setCellWidget(row, 5, click_combo)
 
             layout.addWidget(self.table)
 
             # 創建按鈕佈局
             button_layout = QHBoxLayout()
+
+            # 插入列按鈕
+            insert_btn = QPushButton('插入列')
+            insert_btn.clicked.connect(self.insert_row)
+            button_layout.addWidget(insert_btn)
+
+            # 刪除列按鈕
+            delete_btn = QPushButton('刪除列')
+            delete_btn.clicked.connect(self.delete_row)
+            button_layout.addWidget(delete_btn)
+
+            # 讀取座標位置按鈕
+            load_coords_btn = QPushButton('讀取座標位置')
+            load_coords_btn.clicked.connect(self.load_coordinates)
+            button_layout.addWidget(load_coords_btn)
 
             # 執行按鈕
             execute_btn = QPushButton('執行動作')
@@ -295,14 +366,92 @@ def screen_tools():
 
             layout.addLayout(button_layout)
 
+        def insert_row(self):
+            current_row = self.table.currentRow()
+            if current_row == -1:  # 如果沒有選中行，插入到最後
+                current_row = self.table.rowCount() - 1
+
+            self.table.insertRow(current_row + 1)
+
+            # 為新行設定預設值
+            self.setup_row_widgets(current_row + 1)
+
+        def delete_row(self):
+            current_row = self.table.currentRow()
+            if current_row != -1:
+                self.table.removeRow(current_row)
+
+        def load_coordinates(self):
+            current_row = self.table.currentRow()
+            if current_row == -1:
+                print("請先選擇一行")
+                return
+
+            print(f"讀取座標到第 {current_row + 1} 行...")
+
+            # 從 cross_coords 中讀取座標並填入當前行
+            coord_index = current_row % len(self.cross_coords) if self.cross_coords else 0
+            if self.cross_coords and coord_index < len(self.cross_coords):
+                x, y = self.cross_coords[coord_index]
+
+                # 設定為啟用狀態
+                enabled_checkbox = self.table.cellWidget(current_row, 0)
+                if enabled_checkbox:
+                    enabled_checkbox.setChecked(True)
+
+                # 填入 X 座標
+                x_item = QTableWidgetItem(str(x))
+                self.table.setItem(current_row, 2, x_item)
+
+                # 填入 Y 座標
+                y_item = QTableWidgetItem(str(y))
+                self.table.setItem(current_row, 3, y_item)
+
+                print(f"已載入座標到第 {current_row + 1} 行: ({x}, {y})")
+            else:
+                print("沒有可用的座標")
+
+        def setup_row_widgets(self, row):
+            # Enabled checkbox
+            enabled_checkbox = QCheckBox()
+            enabled_checkbox.setChecked(False)
+            self.table.setCellWidget(row, 0, enabled_checkbox)
+
+            # 動作類型下拉選單
+            action_combo = QComboBox()
+            action_combo.addItems(['moveTo', 'click', 'dragTo'])
+            self.table.setCellWidget(row, 1, action_combo)
+
+            # X座標
+            x_item = QTableWidgetItem("")
+            self.table.setItem(row, 2, x_item)
+
+            # Y座標
+            y_item = QTableWidgetItem("")
+            self.table.setItem(row, 3, y_item)
+
+            # 延遲時間
+            delay_item = QTableWidgetItem("0.2")
+            self.table.setItem(row, 4, delay_item)
+
+            # 點擊類型下拉選單
+            click_combo = QComboBox()
+            click_combo.addItems(['', 'left', 'right'])
+            self.table.setCellWidget(row, 5, click_combo)
+
         def execute_actions(self):
             print("開始執行滑鼠動作...")
             for row in range(self.table.rowCount()):
-                action_type = self.table.cellWidget(row, 0).currentText()
-                x_text = self.table.item(row, 1).text()
-                y_text = self.table.item(row, 2).text()
-                delay_text = self.table.item(row, 3).text()
-                click_type = self.table.cellWidget(row, 4).currentText()
+                # 檢查是否啟用
+                enabled_checkbox = self.table.cellWidget(row, 0)
+                if not enabled_checkbox or not enabled_checkbox.isChecked():
+                    continue
+
+                action_type = self.table.cellWidget(row, 1).currentText()
+                x_text = self.table.item(row, 2).text()
+                y_text = self.table.item(row, 3).text()
+                delay_text = self.table.item(row, 4).text()
+                click_type = self.table.cellWidget(row, 5).currentText()
 
                 # 檢查是否有有效的座標
                 if not x_text or not y_text:
@@ -337,13 +486,13 @@ def screen_tools():
         def clear_table(self):
             for row in range(self.table.rowCount()):
                 for col in range(self.table.columnCount()):
-                    if col == 0 or col == 4:  # 下拉選單
-                        if col == 0:
-                            self.table.cellWidget(row, col).setCurrentIndex(0)
-                        else:
-                            self.table.cellWidget(row, col).setCurrentIndex(0)
+                    if col == 0:  # checkbox
+                        self.table.cellWidget(row, col).setChecked(False)
+                    elif col == 1 or col == 5:  # 下拉選單
+                        self.table.cellWidget(row, col).setCurrentIndex(0)
                     else:  # 文字項目
                         self.table.setItem(row, col, QTableWidgetItem(""))
+
     def set_blue_cross():
         nonlocal cross_color
         cross_color = "blue"
