@@ -38,6 +38,7 @@ def screen_tools():
     point2 = None
     cross_length = 100
     cross_coords = []  # 存儲十字線座標的列表
+    cross_color = "pink"  # 十字線顏色，預設粉紅色
 
     # 滑鼠移動事件
     def on_mouse_move(event):
@@ -45,10 +46,10 @@ def screen_tools():
         canvas.delete("pink_cross")
         canvas.delete("coord_text")
 
-        # 畫新的粉紅色十字線
+        # 畫新的十字線
         x, y = event.x, event.y
-        canvas.create_line(x - cross_length//2, y, x + cross_length//2, y, fill="pink", width=2, tags="pink_cross")
-        canvas.create_line(x, y - cross_length//2, x, y + cross_length//2, fill="pink", width=2, tags="pink_cross")
+        canvas.create_line(x - cross_length//2, y, x + cross_length//2, y, fill=cross_color, width=2, tags="pink_cross")
+        canvas.create_line(x, y - cross_length//2, x, y + cross_length//2, fill=cross_color, width=2, tags="pink_cross")
 
         # 根據螢幕中心決定座標顯示位置
         screen_center_x = full_screenshot.width // 2
@@ -69,7 +70,7 @@ def screen_tools():
             text_y = y - 30
 
         # 顯示座標文字
-        canvas.create_text(text_x, text_y, text=f"({x}, {y})", fill="pink", font=("Arial", 10), tags="coord_text")
+        canvas.create_text(text_x, text_y, text=f"({x}, {y})", fill=cross_color, font=("Arial", 10), tags="coord_text")
 
         # 更新座標顯示標籤
         coord_label.config(text=f"({x}, {y})")
@@ -127,10 +128,12 @@ def screen_tools():
         menu.add_separator()
         menu.add_command(label="5. 存十字線座標", command=lambda: save_cross_coords(event))
         menu.add_command(label="6. 重新擷取螢幕", command=refresh_screenshot)
+        menu.add_command(label="8. 設定粉紅色十字線", command=set_pink_cross)
+        menu.add_command(label="9. 設定藍色十字線", command=set_blue_cross)
         if point1 and point2 and OCR_AVAILABLE:
-            menu.add_command(label="7. OCR 功能", command=perform_ocr)
+            menu.add_command(label="10. OCR 功能", command=perform_ocr)
         elif not OCR_AVAILABLE:
-            menu.add_command(label="7. OCR 功能 (未安裝)", state="disabled")
+            menu.add_command(label="10. OCR 功能 (未安裝)", state="disabled")
         menu.post(event.x_root, event.y_root)
 
     def mark_point1(event):
@@ -182,6 +185,16 @@ def screen_tools():
         x, y = event.x, event.y
         cross_coords.append((x, y))
         print(f"已存十字線座標: ({x}, {y})，目前共有 {len(cross_coords)} 個座標")
+
+    def set_pink_cross():
+        nonlocal cross_color
+        cross_color = "pink"
+        print("十字線顏色已設定為粉紅色")
+
+    def set_blue_cross():
+        nonlocal cross_color
+        cross_color = "blue"
+        print("十字線顏色已設定為藍色")
 
     def refresh_screenshot():
         nonlocal full_screenshot, tk_img
