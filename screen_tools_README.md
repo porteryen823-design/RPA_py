@@ -20,25 +20,36 @@
 ### 3. 右鍵選單功能
 - **1. 標示第一點**: 在滑鼠位置標示藍色圓點
 - **2. 標示第二點 (並繪出兩點矩形)**: 在滑鼠位置標示綠色圓點並繪製紫色矩形
-- **3. 存檔**: 儲存包含所有標記的圖片到 `image_temp` 目錄
-- **4. 清除繪製矩形**: 清除所有繪製的矩形和標記點
-- **5. 存十字線座標**: 將當前十字線位置的座標存入記憶體
-- **6. 重新擷取螢幕**: 重新擷取螢幕並更新底圖
-- **8. 設定粉紅色十字線**: 將十字線和座標文字設定為粉紅色
-- **9. 設定藍色十字線**: 將十字線和座標文字設定為藍色
-- **10. OCR 功能**: 當有標記矩形時，進行 OCR 文字辨識（需要 Tesseract）
+- **3. 存整個螢幕**: 儲存完整的螢幕截圖到 `image_temp/full_screenshot_YYYYMMDDHHMMSS.png`
+- **4. 存框出矩形**: 儲存由兩個標記點定義的矩形區域到 `image_temp/rectangle_YYYYMMDDHHMMSS.png`
+- **5. 存檔 (帶標記)**: 儲存包含所有標記的圖片到 `image_temp/screenshot_with_marks_YYYYMMDDHHMMSS.png`
+- **6. 清除繪製矩形**: 清除所有繪製的矩形和標記點
+- **7. 存十字線座標**: 將當前十字線位置的座標存入記憶體
+- **8. 重新擷取螢幕**: 重新擷取螢幕並更新底圖
+- **9. 滑鼠動作設定**: 開啟 PyQt5 滑鼠動作設定視窗（需要 PyQt5）
+- **10. 設定粉紅色十字線**: 將十字線和座標文字設定為粉紅色
+- **11. 設定藍色十字線**: 將十字線和座標文字設定為藍色
+- **12. OCR 功能**: 當有標記矩形時，進行 OCR 文字辨識（需要 Tesseract）
+- **13. 隱藏滑鼠設定**: 隱藏滑鼠動作設定視窗
 
 ### 4. OCR 文字辨識
 - 支援中文繁體和英文文字辨識
 - 辨識結果顯示在獨立視窗中
 - 提供複製到剪貼簿功能
-- 需要安裝 Tesseract OCR 引擎
+- **新增翻譯功能**：支援繁體中文、簡體中文翻譯成英文
+- 翻譯按鈕位於 OCR 結果視窗中，可手動選擇翻譯方式
+- 需要安裝 Tesseract OCR 引擎和 translate 套件
 
 ## 安裝需求
 
 ### Python 套件
 ```bash
-pip install pyautogui pillow tkinter pytesseract
+pip install pyautogui pillow tkinter pytesseract translate
+```
+
+### 可選套件（用於進階功能）
+```bash
+pip install PyQt5  # 用於滑鼠動作設定功能
 ```
 
 ### Tesseract OCR 引擎（用於 OCR 功能）
@@ -65,11 +76,16 @@ python screen_tools.py
    - 先標記兩個點定義辨識區域
    - 右鍵選單選擇 "OCR 功能"
    - 查看辨識結果並可複製到剪貼簿
+   - **翻譯功能**：在 OCR 結果視窗中點擊翻譯按鈕
+     - "繁體中文翻英文"：指定來源為繁體中文
+     - "簡體中文翻英文"：指定來源為簡體中文
+     - "自動翻譯"：自動檢測來源語言
 
 ## 檔案輸出
 
-- 螢幕擷取圖片：儲存到 `image_temp` 目錄
-- 標記圖片：`image_temp/screenshot_with_marks_YYYYMMDDHHMMSS.png`
+- **完整螢幕截圖**：`image_temp/full_screenshot_YYYYMMDDHHMMSS.png`
+- **矩形區域截圖**：`image_temp/rectangle_YYYYMMDDHHMMSS.png`
+- **帶標記截圖**：`image_temp/screenshot_with_marks_YYYYMMDDHHMMSS.png`
 - OCR 結果：顯示在視窗中，可複製到剪貼簿
 
 ## 技術特點
@@ -93,3 +109,5 @@ python screen_tools.py
 - v1.1: 新增 OCR 文字辨識功能
 - v1.2: 新增 ESC 鍵反向移除功能和即時座標顯示
 - v1.3: 新增十字線座標記憶功能和顏色切換功能，優化座標顯示位置根據螢幕象限
+- v1.4: 新增多種螢幕截圖儲存選項（完整螢幕、矩形區域、帶標記圖片）
+- v1.5: 新增 OCR 文字翻譯功能，支援繁體/簡體中文翻譯成英文
