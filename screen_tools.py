@@ -37,6 +37,7 @@ def screen_tools():
     point1 = None
     point2 = None
     cross_length = 100
+    cross_coords = []  # 存儲十字線座標的列表
 
     # 滑鼠移動事件
     def on_mouse_move(event):
@@ -49,8 +50,26 @@ def screen_tools():
         canvas.create_line(x - cross_length//2, y, x + cross_length//2, y, fill="pink", width=2, tags="pink_cross")
         canvas.create_line(x, y - cross_length//2, x, y + cross_length//2, fill="pink", width=2, tags="pink_cross")
 
-        # 在十字線旁邊顯示座標
-        canvas.create_text(x + 10, y - 10, text=f"({x}, {y})", fill="pink", font=("Arial", 10), tags="coord_text")
+        # 根據螢幕中心決定座標顯示位置
+        screen_center_x = full_screenshot.width // 2
+        screen_center_y = full_screenshot.height // 2
+
+        # 判斷象限並決定文字顯示位置
+        if x >= screen_center_x and y < screen_center_y:  # 第一象限
+            text_x = x - 50  # 顯示在第三象限對角
+            text_y = y + 30
+        elif x < screen_center_x and y < screen_center_y:  # 第二象限
+            text_x = x + 50  # 顯示在第四象限對角
+            text_y = y + 30
+        elif x < screen_center_x and y >= screen_center_y:  # 第三象限
+            text_x = x + 50  # 顯示在第一象限對角
+            text_y = y - 30
+        else:  # 第四象限
+            text_x = x - 50  # 顯示在第二象限對角
+            text_y = y - 30
+
+        # 顯示座標文字
+        canvas.create_text(text_x, text_y, text=f"({x}, {y})", fill="pink", font=("Arial", 10), tags="coord_text")
 
         # 更新座標顯示標籤
         coord_label.config(text=f"({x}, {y})")
@@ -106,11 +125,12 @@ def screen_tools():
         menu.add_command(label="3. 存檔", command=save_image)
         menu.add_command(label="4. 清除繪製矩形", command=clear_rectangles)
         menu.add_separator()
-        menu.add_command(label="5. 重新擷取螢幕", command=refresh_screenshot)
+        menu.add_command(label="5. 存十字線座標", command=lambda: save_cross_coords(event))
+        menu.add_command(label="6. 重新擷取螢幕", command=refresh_screenshot)
         if point1 and point2 and OCR_AVAILABLE:
-            menu.add_command(label="6. OCR 功能", command=perform_ocr)
+            menu.add_command(label="7. OCR 功能", command=perform_ocr)
         elif not OCR_AVAILABLE:
-            menu.add_command(label="6. OCR 功能 (未安裝)", state="disabled")
+            menu.add_command(label="7. OCR 功能 (未安裝)", state="disabled")
         menu.post(event.x_root, event.y_root)
 
     def mark_point1(event):
@@ -156,6 +176,12 @@ def screen_tools():
         point1 = None
         point2 = None
         print("已清除所有繪製矩形和標記點")
+
+    def save_cross_coords(event):
+        nonlocal cross_coords
+        x, y = event.x, event.y
+        cross_coords.append((x, y))
+        print(f"已存十字線座標: ({x}, {y})，目前共有 {len(cross_coords)} 個座標")
 
     def refresh_screenshot():
         nonlocal full_screenshot, tk_img
