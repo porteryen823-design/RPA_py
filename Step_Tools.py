@@ -1,15 +1,18 @@
 import sys
 import sqlite3
+import os
+import json
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QTableWidget, QTableWidgetItem,
                              QPushButton, QLineEdit, QLabel, QComboBox,
-                              QInputDialog,
-                             QTextEdit, QDialog, QMessageBox, QCheckBox,
-                             QHeaderView, QAbstractItemView, QMenu, QAction)
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QShortcut
-from PyQt5.QtGui import QFont, QIcon
+                             QInputDialog, QTextEdit, QDialog, QMessageBox,
+                             QCheckBox, QHeaderView, QAbstractItemView,
+                             QMenu, QAction, QShortcut)
+from PyQt5.QtGui import (QTextCursor, QKeySequence, QTextCharFormat,
+                        QColor, QFont, QIcon, QKeyEvent, QCloseEvent)
+from PyQt5.QtCore import Qt, QTimer, QEvent
+from PyQt5.QtWidgets import QHeaderView, QTableWidgetItem
+from typing import Optional, cast
 import pyautogui
 import time
 import pyperclip
@@ -23,10 +26,69 @@ class StepToolsApp(QMainWindow):
         self.init_ui()
         self.load_projects()
 
-    def init_database(self):
+    def init_database(self) -> bool:
         """初始化資料庫"""
-        self.db_connection = sqlite3.connect('step_tools.db')
-        cursor = self.db_connection.cursor()
+        try:
+            self.db_connection = sqlite3.connect('step_tools.db')
+            if not self.db_connection:
+                QMessageBox.critical(self, "Database Error", "無法建立資料庫連接")
+                return False
+            
+            # 檢查資料庫連接是否有效
+            try:
+                cursor = self.db_connection.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                cursor.close()
+                return True
+            except Exception as e:
+                QMessageBox.critical(self, "Database Error", f"資料庫測試失敗: {str(e)}")
+                self.db_connection.close()
+                self.db_connection = None
+                return False
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Database Error", f"資料庫連接失敗: {str(e)}")
+            self.db_connection = None
+            return False
+            
+            # 建立專案表格
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS projects (
+                    project_id TEXT PRIMARY KEY,
+                    project_name TEXT NOT NULL,
+                    create_date TEXT NOT NULL,
+                    create_user TEXT NOT NULL
+                )
+            ''')
+            
+            # 建立步驟表格
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS steps (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    project_id TEXT NOT NULL,
+                    step_no INTEGER NOT NULL,
+                    enabled BOOLEAN NOT NULL DEFAULT 1,
+                    action_description TEXT,
+                    keyboard_action BOOLEAN NOT NULL DEFAULT 0,
+                    mouse_action BOOLEAN NOT NULL DEFAULT 0,
+                    coord_x INTEGER,
+                    coord_y INTEGER,
+                    duration REAL DEFAULT 0.0,
+                    data TEXT,
+                    interval REAL DEFAULT 0.0,
+                    delay_time REAL DEFAULT 0.0,
+                    repeat_count INTEGER DEFAULT 1,
+                    FOREIGN KEY (project_id) REFERENCES projects (project_id),
+                    UNIQUE(project_id, step_no)
+                )
+            ''')
+            
+            self.db_connection.commit()
+            return True
+        except Exception as e:
+            QMessageBox.critical(self, "Database Error", f"無法連接資料庫: {str(e)}")
+            self.db_connection = None
+            return False
 
         # 建立專案表格
         cursor.execute('''
@@ -81,10 +143,13 @@ class StepToolsApp(QMainWindow):
         self.project_combo.currentTextChanged.connect(self.on_project_changed)
         create_project_btn = QPushButton('建立新專案')
         create_project_btn.clicked.connect(self.create_new_project)
+        copy_project_btn = QPushButton('複製專案')
+        copy_project_btn.clicked.connect(self.copy_current_project)
 
         project_layout.addWidget(project_label)
         project_layout.addWidget(self.project_combo)
         project_layout.addWidget(create_project_btn)
+        project_layout.addWidget(copy_project_btn)
         project_layout.addStretch()
 
         main_layout.addLayout(project_layout)
@@ -97,6 +162,14 @@ class StepToolsApp(QMainWindow):
         # 按鈕區域
         button_layout = QHBoxLayout()
 
+        add_above_btn = QPushButton('在上方新增步驟')
+        add_above_btn.clicked.connect(lambda: self.add_step_at_position('above'))
+        button_layout.addWidget(add_above_btn)
+
+        add_below_btn = QPushButton('在下方新增步驟')
+        add_below_btn.clicked.connect(lambda: self.add_step_at_position('below'))
+        button_layout.addWidget(add_below_btn)
+
         add_step_btn = QPushButton('新增步驟')
         add_step_btn.clicked.connect(self.add_step)
         button_layout.addWidget(add_step_btn)
@@ -104,6 +177,23 @@ class StepToolsApp(QMainWindow):
         delete_step_btn = QPushButton('刪除步驟')
         delete_step_btn.clicked.connect(self.delete_step)
         button_layout.addWidget(delete_step_btn)
+
+        # 批次啟用/停用按鈕
+        enable_above_btn = QPushButton('以上全部啟用')
+        enable_above_btn.clicked.connect(lambda: self.batch_enable_disable('above', True))
+        button_layout.addWidget(enable_above_btn)
+
+        disable_above_btn = QPushButton('以上全部停用')
+        disable_above_btn.clicked.connect(lambda: self.batch_enable_disable('above', False))
+        button_layout.addWidget(disable_above_btn)
+
+        enable_below_btn = QPushButton('以下全部啟用')
+        enable_below_btn.clicked.connect(lambda: self.batch_enable_disable('below', True))
+        button_layout.addWidget(enable_below_btn)
+
+        disable_below_btn = QPushButton('以下全部停用')
+        disable_below_btn.clicked.connect(lambda: self.batch_enable_disable('below', False))
+        button_layout.addWidget(disable_below_btn)
 
         renumber_btn = QPushButton('重新編號')
         renumber_btn.clicked.connect(self.renumber_steps)
@@ -118,11 +208,6 @@ class StepToolsApp(QMainWindow):
         button_layout.addWidget(run_btn)
 
         button_layout.addStretch()
-
-        # 新增功能選單按鈕
-        menu_button = QPushButton('功能選單')
-        menu_button.clicked.connect(self.show_context_menu_button)
-        main_layout.addWidget(menu_button)
 
         main_layout.addLayout(button_layout)
     def setup_projects_list(self):
@@ -192,8 +277,8 @@ class StepToolsApp(QMainWindow):
         # 複製所有步驟
         cursor.execute('''
             INSERT INTO steps (project_id, step_no, enabled, action_description,
-                              keyboard_action, mouse_action, coord_x, coord_y,
-                              duration, data, interval, delay_time, repeat_count)
+                               keyboard_action, mouse_action, coord_x, coord_y,
+                               duration, data, interval, delay_time, repeat_count)
             SELECT ?, step_no, enabled, action_description,
                    keyboard_action, mouse_action, coord_x, coord_y,
                    duration, data, interval, delay_time, repeat_count
@@ -205,6 +290,44 @@ class StepToolsApp(QMainWindow):
         # 重新載入專案列表
         self.load_projects()
         self.load_projects_list()
+
+        QMessageBox.information(self, '成功', f'專案 "{source_project_name}" 已複製為 "{new_project_name}"')
+
+    def copy_project_from_name(self, source_project_name, new_project_name):
+        """從專案名稱複製專案"""
+        # 檢查名稱是否已存在
+        cursor = self.db_connection.cursor()
+        cursor.execute('SELECT COUNT(*) FROM projects WHERE project_name = ?', (new_project_name,))
+        if cursor.fetchone()[0] > 0:
+            QMessageBox.warning(self, '警告', f'專案名稱 "{new_project_name}" 已存在')
+            return
+
+        # 複製專案
+        import uuid
+        new_project_id = str(uuid.uuid4())
+
+        # 複製專案資訊
+        cursor.execute('''
+            INSERT INTO projects (project_id, project_name, create_date, create_user)
+            SELECT ?, ?, datetime('now'), create_user
+            FROM projects WHERE project_name = ?
+        ''', (new_project_id, new_project_name, source_project_name))
+
+        # 複製所有步驟
+        cursor.execute('''
+            INSERT INTO steps (project_id, step_no, enabled, action_description,
+                               keyboard_action, mouse_action, coord_x, coord_y,
+                               duration, data, interval, delay_time, repeat_count)
+            SELECT ?, step_no, enabled, action_description,
+                   keyboard_action, mouse_action, coord_x, coord_y,
+                   duration, data, interval, delay_time, repeat_count
+            FROM steps WHERE project_id = (SELECT project_id FROM projects WHERE project_name = ?)
+        ''', (new_project_id, source_project_name))
+
+        self.db_connection.commit()
+
+        # 重新載入專案列表
+        self.load_projects()
 
         QMessageBox.information(self, '成功', f'專案 "{source_project_name}" 已複製為 "{new_project_name}"')
 
@@ -273,35 +396,68 @@ class StepToolsApp(QMainWindow):
         QMessageBox.information(self, '成功', f'專案 "{project_name}" 已刪除')
 
         # 設定 F12 鍵觸發選單
-        self.steps_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.shortcut = QShortcut(QKeySequence("F12"), self)
         self.shortcut.activated.connect(self.trigger_context_menu)
 
     def setup_steps_table(self):
         """設定步驟表格"""
         headers = ['步驟編號', '啟用', '動作說明', '鍵盤動作', '滑鼠動作',
-                  '座標 X', '座標 Y', '持續時間', '資料', '間隔', '延遲時間', '重複次數']
+                   '座標 X', '座標 Y', '持續時間', '資料', '間隔', '延遲時間', '重複次數']
         self.steps_table.setColumnCount(len(headers))
         self.steps_table.setHorizontalHeaderLabels(headers)
 
-        # 設定欄位寬度
-        self.steps_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        # 設定欄位寬度和調整行為
+        if self.steps_table and self.steps_table.horizontalHeader():
+            header = self.steps_table.horizontalHeader()
+            if header:
+                header.setSectionResizeMode(QHeaderView.Interactive)  # 允許手動調整寬度
+                header.setSectionsMovable(True)  # 允許拖動調整欄位順序
+                header.setStretchLastSection(True)  # 最後一欄自動拉伸
+                
+                # 設定預設欄位寬度
+                header.resizeSection(0, 100)   # 步驟編號
+                header.resizeSection(1, 60)    # 啟用
+                header.resizeSection(2, 200)   # 動作說明
+                header.resizeSection(3, 80)    # 鍵盤動作
+                header.resizeSection(4, 80)    # 滑鼠動作
+                header.resizeSection(5, 70)    # 座標 X
+                header.resizeSection(6, 70)    # 座標 Y
+                header.resizeSection(7, 80)    # 持續時間
+                header.resizeSection(8, 150)   # 資料
+                header.resizeSection(9, 70)    # 間隔
+                header.resizeSection(10, 80)   # 延遲時間
+                header.resizeSection(11, 80)   # 重複次數
+        
         self.steps_table.setAlternatingRowColors(True)
         self.steps_table.setSelectionBehavior(QAbstractItemView.SelectRows)
 
+        # 設定右鍵選單
+        self.steps_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.steps_table.customContextMenuRequested.connect(self.show_context_menu)
+
     def load_projects(self):
         """載入專案列表"""
-        cursor = self.db_connection.cursor()
-        cursor.execute('SELECT project_name FROM projects ORDER BY create_date DESC')
-        projects = cursor.fetchall()
+        if not self.db_connection and not self.init_database():
+            return
+        
+        try:
+            if not self.db_connection:
+                raise Exception("Database not connected")
+                
+            cursor = self.db_connection.cursor()
+            cursor.execute('SELECT project_name FROM projects ORDER BY create_date DESC')
+            projects = cursor.fetchall()
 
-        self.project_combo.clear()
-        for project in projects:
-            self.project_combo.addItem(project[0])
+            self.project_combo.clear()
+            for project in projects:
+                if project and project[0]:
+                    self.project_combo.addItem(project[0])
 
-        # 如果有專案，載入第一個
-        if projects:
-            self.load_project_steps(projects[0][0])
+            # 如果有專案，載入第一個
+            if projects and projects[0] and projects[0][0]:
+                self.load_project_steps(projects[0][0])
+        except Exception as e:
+            QMessageBox.critical(self, "Database Error", f"載入專案失敗: {str(e)}")
 
     def on_project_changed(self, project_name):
         """專案變更事件"""
@@ -336,15 +492,18 @@ class StepToolsApp(QMainWindow):
 
         for row, step in enumerate(steps):
             # 步驟編號 (唯讀)
-            step_no_item = QTableWidgetItem(str(step[0]))
-            step_no_item.setFlags(step_no_item.flags() & ~Qt.ItemIsEditable)
-            self.steps_table.setItem(row, 0, step_no_item)
+            step_no = str(step[0]) if step and step[0] is not None else ""
+            step_no_item = QTableWidgetItem(step_no)
+            if step_no_item:
+                step_no_item.setFlags(step_no_item.flags() & ~Qt.ItemIsEditable)
+                self.steps_table.setItem(row, 0, step_no_item)
 
             # 啟用勾選框
             enabled_item = QTableWidgetItem()
-            enabled_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            enabled_item.setCheckState(Qt.Checked if step[1] else Qt.Unchecked)
-            self.steps_table.setItem(row, 1, enabled_item)
+            if enabled_item:
+                enabled_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                enabled_item.setCheckState(Qt.Checked if step and step[1] else Qt.Unchecked)
+                self.steps_table.setItem(row, 1, enabled_item)
 
             # 動作說明
             action_desc_item = QTableWidgetItem(str(step[2]) if step[2] else '')
@@ -374,6 +533,19 @@ class StepToolsApp(QMainWindow):
             project_name = dialog.project_name_edit.text().strip()
             if project_name:
                 self.create_project(project_name)
+
+    def copy_current_project(self):
+        """複製目前專案"""
+        current_project_name = self.project_combo.currentText()
+        if not current_project_name:
+            QMessageBox.warning(self, '警告', '請先選擇要複製的專案')
+            return
+
+        dialog = CopyProjectDialog(current_project_name, self)
+        if dialog.exec_() == QDialog.Accepted:
+            new_project_name = dialog.new_project_name_edit.text().strip()
+            if new_project_name:
+                self.copy_project_from_name(current_project_name, new_project_name)
 
     def create_project(self, project_name):
         """建立專案"""
@@ -427,23 +599,39 @@ class StepToolsApp(QMainWindow):
         step_no = int(self.steps_table.item(current_row, 0).text())
 
         cursor = self.db_connection.cursor()
+
+        # 刪除步驟
         cursor.execute('DELETE FROM steps WHERE project_id = ? AND step_no = ?',
                       (self.current_project_id, step_no))
 
-        # 重新編號剩餘步驟
+        # 重新編號剩餘步驟（避免 UNIQUE 約束衝突）
+        # 先將所有步驟編號設為負數
+        cursor.execute('UPDATE steps SET step_no = -ABS(step_no) WHERE project_id = ?',
+                      (self.current_project_id,))
+
+        # 重新編號為 10, 20, 30... 按照原順序
         cursor.execute('''
-            SELECT id, step_no FROM steps
+            SELECT id FROM steps
             WHERE project_id = ?
-            ORDER BY step_no
+            ORDER BY step_no DESC
         ''', (self.current_project_id,))
 
-        remaining_steps = cursor.fetchall()
-        for i, (step_id, _) in enumerate(remaining_steps):
+        step_ids = cursor.fetchall()
+        for i, (step_id,) in enumerate(step_ids):
             new_step_no = (i + 1) * 10
             cursor.execute('UPDATE steps SET step_no = ? WHERE id = ?', (new_step_no, step_id))
 
         self.db_connection.commit()
+
+        # 重新載入步驟並調整選擇位置
         self.load_steps()
+
+        # 調整選擇位置，避免超出範圍
+        row_count = self.steps_table.rowCount()
+        if row_count > 0:
+            # 如果刪除的是最後一行，選擇前一行，否則選擇同一位置
+            new_row = min(current_row, row_count - 1)
+            self.steps_table.selectRow(new_row)
 
     def renumber_steps(self):
         """重新編號步驟"""
@@ -462,7 +650,7 @@ class StepToolsApp(QMainWindow):
         cursor.execute('''
             SELECT id FROM steps
             WHERE project_id = ?
-            ORDER BY step_no
+            ORDER BY step_no DESC
         ''', (self.current_project_id,))
 
         step_ids = cursor.fetchall()
@@ -534,16 +722,6 @@ class StepToolsApp(QMainWindow):
 
     def trigger_context_menu(self):
         """觸發功能選單"""
-        current_row = self.steps_table.currentRow()
-        if current_row < 0:
-            QMessageBox.warning(self, '警告', '請選擇一個步驟')
-            return
-
-        position = self.steps_table.visualItemRect(self.steps_table.item(current_row, 0)).topLeft()
-        self.show_context_menu(self.steps_table.viewport().mapToGlobal(position))
-
-    def show_context_menu_button(self):
-        """按鈕觸發功能選單"""
         current_row = self.steps_table.currentRow()
         if current_row < 0:
             QMessageBox.warning(self, '警告', '請選擇一個步驟')
@@ -643,21 +821,45 @@ class StepToolsApp(QMainWindow):
         self.db_connection.commit()
         self.load_steps()
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, a0: Optional[QKeyEvent]) -> None:
         """處理鍵盤事件"""
-        if event.key() == Qt.Key_F12:
+        if not a0 or not self.steps_table:
+            return super().keyPressEvent(a0)
+        
+        try:
+            if a0.key() == Qt.Key.Key_F12:
+                # 獲取表格中心位置作為選單位置
+                center = self.steps_table.rect().center()
+                global_pos = self.steps_table.mapToGlobal(center)
+                self.show_context_menu(self.steps_table.mapFromGlobal(global_pos))
+            else:
+                super().keyPressEvent(a0)
+        except Exception as e:
+            print(f"鍵盤事件處理錯誤: {str(e)}")
+            super().keyPressEvent(a0)
+        if a0.key() == Qt.Key.Key_F12:
             # 獲取表格中心位置作為選單位置
             center = self.steps_table.rect().center()
             global_pos = self.steps_table.mapToGlobal(center)
             self.show_context_menu(self.steps_table.mapFromGlobal(global_pos))
         else:
-            super().keyPressEvent(event)
+            super().keyPressEvent(a0)
 
-    def closeEvent(self, event):
+    def closeEvent(self, a0: Optional[QCloseEvent]) -> None:
         """關閉事件"""
+        try:
+            if self.db_connection:
+                self.db_connection.close()
+                self.db_connection = None
+        except Exception as e:
+            print(f"關閉資料庫連接時發生錯誤: {str(e)}")
+        
+        if a0:
+            a0.accept()
+        super().closeEvent(a0)
         if self.db_connection:
             self.db_connection.close()
-        event.accept()
+        a0.accept()
 
 
 class CreateProjectDialog(QDialog):
@@ -700,19 +902,82 @@ class CreateProjectDialog(QDialog):
             QMessageBox.critical(self, '錯誤', f'儲存檔案失敗: {str(e)}')
 
 
+class CopyProjectDialog(QDialog):
+    def __init__(self, current_project_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('複製專案')
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+
+        # 目前專案
+        current_layout = QHBoxLayout()
+        current_label = QLabel('目前專案：')
+        self.current_project_label = QLabel(current_project_name)
+        current_layout.addWidget(current_label)
+        current_layout.addWidget(self.current_project_label)
+        current_layout.addStretch()
+        layout.addLayout(current_layout)
+
+        # 新專案名稱
+        name_layout = QHBoxLayout()
+        name_label = QLabel('新專案名稱：')
+        self.new_project_name_edit = QLineEdit()
+        self.new_project_name_edit.setText(f"{current_project_name}_copy")
+        name_layout.addWidget(name_label)
+        name_layout.addWidget(self.new_project_name_edit)
+        layout.addLayout(name_layout)
+
+        # 按鈕區域
+        button_layout = QHBoxLayout()
+
+        copy_btn = QPushButton('複製')
+        copy_btn.clicked.connect(self.accept)
+        button_layout.addWidget(copy_btn)
+
+        cancel_btn = QPushButton('取消')
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+
+        layout.addLayout(button_layout)
+
+
 class RunStepsDialog(QDialog):
     def __init__(self, steps, parent=None):
         super().__init__(parent)
         self.steps = steps
         self.setWindowTitle('執行步驟')
         self.setModal(True)
-        self.resize(600, 400)
+        self.resize(800, 600)
 
         layout = QVBoxLayout(self)
+
+        # 字體控制區域
+        font_control_layout = QHBoxLayout()
+        
+        self.font_size = 10
+        self.is_bold = False
+        
+        increase_font_btn = QPushButton('放大字體')
+        increase_font_btn.clicked.connect(self.increase_font_size)
+        font_control_layout.addWidget(increase_font_btn)
+        
+        decrease_font_btn = QPushButton('縮小字體')
+        decrease_font_btn.clicked.connect(self.decrease_font_size)
+        font_control_layout.addWidget(decrease_font_btn)
+        
+        toggle_bold_btn = QPushButton('粗體')
+        toggle_bold_btn.setCheckable(True)
+        toggle_bold_btn.clicked.connect(self.toggle_bold)
+        font_control_layout.addWidget(toggle_bold_btn)
+        
+        font_control_layout.addStretch()
+        layout.addLayout(font_control_layout)
 
         # 步驟列表
         self.steps_text = QTextEdit()
         self.steps_text.setReadOnly(True)
+        self.steps_text.setFont(QFont('Calibri', self.font_size))
         self.generate_steps_code()
         layout.addWidget(self.steps_text)
 
@@ -733,8 +998,34 @@ class RunStepsDialog(QDialog):
 
         layout.addLayout(button_layout)
 
+    def increase_font_size(self):
+        """增大字體大小"""
+        self.font_size += 1
+        self.update_font()
+        
+    def decrease_font_size(self):
+        """減小字體大小"""
+        if self.font_size > 8:
+            self.font_size -= 1
+            self.update_font()
+            
+    def toggle_bold(self, checked):
+        """切換粗體"""
+        self.is_bold = checked
+        self.update_font()
+        
+    def update_font(self):
+        """更新字體設定"""
+        font = QFont('Calibri', self.font_size)
+        font.setBold(self.is_bold)
+        self.steps_text.setFont(font)
+
     def generate_steps_code(self):
         """生成步驟程式碼"""
+        from PyQt5.QtGui import QTextCharFormat, QColor
+        from PyQt5.QtWidgets import QTextEdit
+        from PyQt5.QtCore import Qt
+        
         code_lines = []
         code_lines.append("import pyautogui")
         code_lines.append("import time")
@@ -743,61 +1034,88 @@ class RunStepsDialog(QDialog):
         code_lines.append("# 自動化腳本")
         code_lines.append("def run_automation():")
         code_lines.append("    # 步驟執行")
+        
+        # 設定高亮格式
+        comment_format = QTextCharFormat()
+        comment_format.setForeground(QColor(0, 128, 0))  # 綠色
 
+        # 生成程式碼並高亮註解
+        cursor = self.steps_text.textCursor()
+        cursor.beginEditBlock()
+        
         for step in self.steps:
             step_no, enabled, action_desc, keyboard, mouse, x, y, duration, data, interval, delay, repeat = step
 
             if delay and delay > 0:
-                code_lines.append(f"    time.sleep({delay:.1f})  # 延遲 {delay} 秒")
+                line = f"    time.sleep({delay:.1f})  # 延遲 {delay} 秒"
+                cursor.insertText(line + '\n')
+                self.highlight_comment(cursor, line, comment_format)
 
             if mouse and x is not None and y is not None:
-                code_lines.append(f"    # 步驟 {step_no}: {action_desc}")
-                code_lines.append(f"    pyautogui.moveTo({x}, {y})")
+                line = f"    # 步驟 {step_no}: {action_desc}"
+                cursor.insertText(line + '\n')
+                self.highlight_comment(cursor, line, comment_format)
+                
+                line = f"    pyautogui.moveTo({x}, {y})"
+                cursor.insertText(line + '\n')
+                
                 if action_desc.lower() == 'click':
-                    code_lines.append("    pyautogui.click()")
+                    cursor.insertText("    pyautogui.click()\n")
                 if duration and duration > 0:
-                    code_lines.append(f"    pyautogui.sleep({duration:.1f})")
+                    cursor.insertText(f"    pyautogui.sleep({duration:.1f})\n")
                 else:
-                    code_lines.append("    pyautogui.sleep(0.1)")
+                    cursor.insertText("    pyautogui.sleep(0.1)\n")
 
             if keyboard and action_desc:
-                code_lines.append(f"    # 步驟 {step_no}: {action_desc}")
+                line = f"    # 步驟 {step_no}: {action_desc}"
+                cursor.insertText(line + '\n')
+                self.highlight_comment(cursor, line, comment_format)
+                
                 if action_desc.lower().startswith('hotkey'):
-                    # 處理複合鍵
                     keys = action_desc.replace('hotkey(', '').replace(')', '').split(',')
                     keys = [k.strip().strip("'\"") for k in keys]
-                    code_lines.append(f"    pyautogui.hotkey({', '.join([repr(k) for k in keys])})")
+                    cursor.insertText(f"    pyautogui.hotkey({', '.join([repr(k) for k in keys])})\n")
                     if delay and delay > 0:
-                        code_lines.append(f"    time.sleep({delay:.1f})")
+                        cursor.insertText(f"    time.sleep({delay:.1f})\n")
                     else:
-                        code_lines.append("    time.sleep(0.1)")
+                        cursor.insertText("    time.sleep(0.1)\n")
                 elif action_desc.lower().startswith('press'):
-                    # 處理單鍵
                     key = action_desc.replace('press(', '').replace(')', '').strip().strip("'\"")
-                    code_lines.append(f"    pyautogui.press('{key}')")
+                    cursor.insertText(f"    pyautogui.press('{key}')\n")
                     if delay and delay > 0:
-                        code_lines.append(f"    time.sleep({delay:.1f})")
+                        cursor.insertText(f"    time.sleep({delay:.1f})\n")
                     else:
-                        code_lines.append("    time.sleep(0.1)")
+                        cursor.insertText("    time.sleep(0.1)\n")
                 elif action_desc.lower() == 'write':
-                    # 處理文字輸入
-                    code_lines.append(f"    pyperclip.copy('{data}')  # 將文字複製到剪貼簿")
-                    code_lines.append("    time.sleep(0.1)  # 等待剪貼簿穩定（視系統而定）")
-                    code_lines.append("    pyautogui.hotkey('ctrl', 'v')  # 模擬 Ctrl+V 貼上")
+                    cursor.insertText(f"    pyperclip.copy('{data}')  # 將文字複製到剪貼簿\n")
+                    cursor.insertText("    time.sleep(0.1)  # 等待剪貼簿穩定（視系統而定）\n")
+                    cursor.insertText("    pyautogui.hotkey('ctrl', 'v')  # 模擬 Ctrl+V 貼上\n")
                     if delay and delay > 0:
-                        code_lines.append(f"    pyautogui.sleep({delay:.1f})")
+                        cursor.insertText(f"    pyautogui.sleep({delay:.1f})\n")
                     else:
-                        code_lines.append("    pyautogui.sleep(0.1)")
+                        cursor.insertText("    pyautogui.sleep(0.1)\n")
 
             if interval and interval > 0:
-                code_lines.append(f"    time.sleep({interval:.1f})  # 間隔 {interval} 秒")
+                line = f"    time.sleep({interval:.1f})  # 間隔 {interval} 秒"
+                cursor.insertText(line + '\n')
+                self.highlight_comment(cursor, line, comment_format)
 
-        code_lines.append("")
-        code_lines.append("# 執行自動化")
-        code_lines.append("if __name__ == \"__main__\":")
-        code_lines.append("    run_automation()")
-
-        self.steps_text.setPlainText('\n'.join(code_lines))
+        cursor.insertText("\n# 執行自動化\n")
+        cursor.insertText("if __name__ == \"__main__\":\n")
+        cursor.insertText("    run_automation()\n")
+        
+        cursor.endEditBlock()
+        
+    def highlight_comment(self, cursor, line, format):
+        """高亮顯示註解部分"""
+        comment_pos = line.find('#')
+        if comment_pos >= 0:
+            # 使用 QTextCursor 的移動操作
+            cursor.movePosition(QTextCursor.PreviousBlock)
+            cursor.movePosition(QTextCursor.EndOfLine)
+            cursor.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, len(line) - comment_pos)
+            cursor.mergeCharFormat(format)
+            cursor.movePosition(QTextCursor.NextBlock)
 
     def run_steps(self):
         """執行步驟"""
