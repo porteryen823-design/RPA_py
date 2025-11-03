@@ -1,0 +1,111 @@
+syntax = "proto3";
+
+package screen_tools;
+
+service ScreenToolsService {
+  // 螢幕截圖相關
+  rpc TakeScreenshot (ScreenshotRequest) returns (ScreenshotResponse);
+  rpc SaveScreenshot (SaveScreenshotRequest) returns (SaveResponse);
+
+  // 滑鼠操作
+  rpc ExecuteMouseAction (MouseActionRequest) returns (ActionResponse);
+  
+  // 鍵盤操作
+  rpc ExecuteKeyboardAction (KeyboardActionRequest) returns (ActionResponse);
+
+  // OCR 功能
+  rpc PerformOCR (OCRRequest) returns (OCRResponse);
+
+  // 座標管理
+  rpc SaveCoordinates (CoordinatesRequest) returns (SaveResponse);
+  rpc GetCoordinates (CoordinatesRequest) returns (CoordinatesResponse);
+
+  // 狀態同步
+  rpc SyncScreenData (ScreenDataRequest) returns (SyncResponse);
+}
+
+message ScreenshotRequest {
+  string region = 1;  // "full" 或 "rectangle:x1,y1,x2,y2"
+}
+
+message ScreenshotResponse {
+  bytes image_data = 1;
+  int32 width = 2;
+  int32 height = 3;
+  string timestamp = 4;
+}
+
+message SaveScreenshotRequest {
+  string path = 1;
+  string filename = 2;
+  bytes image_data = 3;
+}
+
+message SaveResponse {
+  bool success = 1;
+  string message = 2;
+  string saved_path = 3;
+}
+
+message MouseActionRequest {
+  string action_type = 1;  // "moveTo", "click", "dragTo"
+  int32 x = 2;
+  int32 y = 3;
+  float duration = 4;
+  string button = 5;  // "left", "right"
+}
+
+message KeyboardActionRequest {
+  string action_type = 1;  // "press", "hotkey", "write"
+  string key = 2;  // 按鍵名稱或組合鍵
+  string text = 3;  // 文字內容（用於 write 動作）
+  float duration = 4;
+  float interval = 5;
+  float delay_time = 6;
+  repeated string keys = 7;  // 多個按鍵（用於 hotkey 動作）
+}
+
+message ActionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message OCRRequest {
+  bytes image_data = 1;
+  string region = 2;  // "x1,y1,x2,y2"
+  string language = 3;  // "chi_tra+eng", "eng", etc.
+}
+
+message OCRResponse {
+  string text = 1;
+  float confidence = 2;
+  string language = 3;
+}
+
+message CoordinatesRequest {
+  repeated Coordinate coordinates = 1;
+  string action = 2;  // "save", "get", "clear"
+}
+
+message Coordinate {
+  int32 x = 1;
+  int32 y = 2;
+  string label = 3;
+}
+
+message CoordinatesResponse {
+  repeated Coordinate coordinates = 1;
+}
+
+message ScreenDataRequest {
+  string data_type = 1;  // "screenshot", "coordinates", "mouse_position"
+  bytes image_data = 2;
+  repeated Coordinate coordinates = 3;
+  Coordinate mouse_position = 4;
+}
+
+message SyncResponse {
+  bool success = 1;
+  string message = 2;
+  string server_status = 3;
+}
