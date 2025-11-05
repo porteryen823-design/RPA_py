@@ -56,16 +56,22 @@ def screen_tools():
     # 截取整個螢幕作為底圖
     full_screenshot = pyautogui.screenshot()
 
+    # 計算縮放後的視窗大小 (0.8 倍)
+    scale_factor = 0.8
+    window_width = int(full_screenshot.width * scale_factor)
+    window_height = int(full_screenshot.height * scale_factor)
+
     # 顯示視窗預覽整個螢幕底圖
     root = tk.Tk()
     root.title("螢幕工具 - 整個螢幕底圖 (gRPC Client)")
 
-    # 創建 Canvas 用於動態繪製
-    canvas = tk.Canvas(root, width=full_screenshot.width, height=full_screenshot.height)
+    # 創建 Canvas 用於動態繪製，使用縮放後的大小
+    canvas = tk.Canvas(root, width=window_width, height=window_height)
     canvas.pack()
 
-    # 轉換為 Tkinter 格式
-    tk_img = ImageTk.PhotoImage(full_screenshot)
+    # 縮放圖片到 0.8 倍
+    scaled_screenshot = full_screenshot.resize((window_width, window_height), Image.Resampling.LANCZOS)
+    tk_img = ImageTk.PhotoImage(scaled_screenshot)
     canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
 
     # 座標顯示標籤
@@ -94,9 +100,13 @@ def screen_tools():
         canvas.create_line(x - cross_length//2, y, x + cross_length//2, y, fill=cross_color, width=2, tags="pink_cross")
         canvas.create_line(x, y - cross_length//2, x, y + cross_length//2, fill=cross_color, width=2, tags="pink_cross")
 
+        # 將縮放後的座標轉換為原始座標
+        original_x = int(x / scale_factor)
+        original_y = int(y / scale_factor)
+
         # 根據螢幕中心決定座標顯示位置
-        screen_center_x = full_screenshot.width // 2
-        screen_center_y = full_screenshot.height // 2
+        screen_center_x = window_width // 2
+        screen_center_y = window_height // 2
 
         # 判斷象限並決定文字顯示位置
         if x >= screen_center_x and y < screen_center_y:  # 第一象限
@@ -112,11 +122,11 @@ def screen_tools():
             text_x = x - 50  # 顯示在第二象限對角
             text_y = y - 30
 
-        # 顯示座標文字
-        canvas.create_text(text_x, text_y, text=f"({x}, {y})", fill=cross_color, font=("Arial", 10), tags="coord_text")
+        # 顯示座標文字（顯示原始座標）
+        canvas.create_text(text_x, text_y, text=f"({original_x}, {original_y})", fill=cross_color, font=("Arial", 10), tags="coord_text")
 
-        # 更新座標顯示標籤
-        coord_label.config(text=f"({x}, {y})")
+        # 更新座標顯示標籤（顯示原始座標）
+        coord_label.config(text=f"({original_x}, {original_y})")
 
     canvas.bind("<Motion>", on_mouse_move)
 
@@ -127,18 +137,26 @@ def screen_tools():
             x, y = root.winfo_pointerxy()
             rel_x = x - root.winfo_rootx()
             rel_y = y - root.winfo_rooty()
-            point1 = (rel_x, rel_y)
-            print(f"記錄第一點: ({rel_x}, {rel_y})")
+            # 將縮放後的座標轉換為原始座標
+            original_x = int(rel_x / scale_factor)
+            original_y = int(rel_y / scale_factor)
+            point1 = (original_x, original_y)
+            print(f"記錄第一點: ({original_x}, {original_y})")
             draw_point_marker(rel_x, rel_y, "blue", "point1")
         elif event.keysym == 'F2' and event.state & 0x1:  # Shift+F2
             x, y = root.winfo_pointerxy()
             rel_x = x - root.winfo_rootx()
             rel_y = y - root.winfo_rooty()
-            point2 = (rel_x, rel_y)
-            print(f"記錄第二點: ({rel_x}, {rel_y})")
+            # 將縮放後的座標轉換為原始座標
+            original_x = int(rel_x / scale_factor)
+            original_y = int(rel_y / scale_factor)
+            point2 = (original_x, original_y)
+            print(f"記錄第二點: ({original_x}, {original_y})")
             draw_point_marker(rel_x, rel_y, "green", "point2")
             if point1:
-                draw_rectangle(point1, point2)
+                # 使用縮放後的座標繪製矩形
+                scaled_point1 = (int(point1[0] * scale_factor), int(point1[1] * scale_factor))
+                draw_rectangle(scaled_point1, (rel_x, rel_y))
         elif event.keysym == 'Escape':  # ESC 鍵反向移除標記點
             if point2:
                 canvas.delete("point2")
@@ -164,8 +182,11 @@ def screen_tools():
     # 右鍵選單
     def show_context_menu(event):
         # 點選右鍵時自動儲存座標到 action_coord
+        # 將縮放後的座標轉換為原始座標
+        original_x = int(event.x / scale_factor)
+        original_y = int(event.y / scale_factor)
         nonlocal action_coord_x, action_coord_y
-        action_coord_x, action_coord_y = event.x, event.y
+        action_coord_x, action_coord_y = original_x, original_y
         print(f"已更新 action_coord: ({action_coord_x}, {action_coord_y})")
         
         menu = tk.Menu(root, tearoff=0)
@@ -209,19 +230,25 @@ def screen_tools():
 
     def mark_point1(event):
         nonlocal point1
-        x, y = event.x, event.y
-        point1 = (x, y)
-        print(f"標示第一點: ({x}, {y})")
-        draw_point_marker(x, y, "blue", "point1")
+        # 將縮放後的座標轉換為原始座標
+        original_x = int(event.x / scale_factor)
+        original_y = int(event.y / scale_factor)
+        point1 = (original_x, original_y)
+        print(f"標示第一點: ({original_x}, {original_y})")
+        draw_point_marker(event.x, event.y, "blue", "point1")
 
     def mark_point2(event):
         nonlocal point2
-        x, y = event.x, event.y
-        point2 = (x, y)
-        print(f"標示第二點: ({x}, {y})")
-        draw_point_marker(x, y, "green", "point2")
+        # 將縮放後的座標轉換為原始座標
+        original_x = int(event.x / scale_factor)
+        original_y = int(event.y / scale_factor)
+        point2 = (original_x, original_y)
+        print(f"標示第二點: ({original_x}, {original_y})")
+        draw_point_marker(event.x, event.y, "green", "point2")
         if point1:
-            draw_rectangle(point1, point2)
+            # 使用縮放後的座標繪製矩形
+            scaled_point1 = (int(point1[0] * scale_factor), int(point1[1] * scale_factor))
+            draw_rectangle(scaled_point1, (event.x, event.y))
 
     def save_full_screen():
         # 儲存整個螢幕截圖
@@ -242,7 +269,7 @@ def screen_tools():
         top = min(y1, y2)
         right = max(x1, x2)
         bottom = max(y1, y2)
-        # 從螢幕截圖中擷取區域
+        # 從原始螢幕截圖中擷取區域
         region_img = full_screenshot.crop((left, top, right, bottom))
         timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
         save_path = f"image_temp/rectangle_{timestamp}.png"
@@ -255,12 +282,12 @@ def screen_tools():
         timestamp = time.strftime('%Y%m%d%H%M%S')
         save_path = f"image_temp/screenshot_with_marks_{timestamp}.png"
         os.makedirs("image_temp", exist_ok=True)
-        # 創建新的圖片來儲存 canvas 內容
+        # 創建新的圖片來儲存 canvas 內容，使用原始圖片尺寸
         img = Image.new("RGB", (full_screenshot.width, full_screenshot.height), "white")
         draw_img = ImageDraw.Draw(img)
         # 複製原始圖片
         img.paste(full_screenshot, (0, 0))
-        # 繪製標記
+        # 繪製標記（使用原始座標）
         if point1:
             draw_img.ellipse([point1[0]-5, point1[1]-5, point1[0]+5, point1[1]+5], fill="blue")
         if point2:
@@ -281,15 +308,19 @@ def screen_tools():
 
     def save_cross_coords(event):
         nonlocal cross_coords
-        x, y = event.x, event.y
-        cross_coords.append((x, y))
-        print(f"已存十字線座標: ({x}, {y})，目前共有 {len(cross_coords)} 個座標")
+        # 將縮放後的座標轉換為原始座標
+        original_x = int(event.x / scale_factor)
+        original_y = int(event.y / scale_factor)
+        cross_coords.append((original_x, original_y))
+        print(f"已存十字線座標: ({original_x}, {original_y})，目前共有 {len(cross_coords)} 個座標")
 
     def save_action_coord(event):
         nonlocal cross_coords
-        x, y = event.x, event.y
-        cross_coords.append((x, y))
-        print(f"已存 action_coord: ({x}, {y})，目前共有 {len(cross_coords)} 個座標")
+        # 將縮放後的座標轉換為原始座標
+        original_x = int(event.x / scale_factor)
+        original_y = int(event.y / scale_factor)
+        cross_coords.append((original_x, original_y))
+        print(f"已存 action_coord: ({original_x}, {original_y})，目前共有 {len(cross_coords)} 個座標")
 
         # 透過 gRPC 傳送座標到 server
         if GRPC_AVAILABLE:
@@ -297,7 +328,7 @@ def screen_tools():
             if stub:
                 try:
                     # 創建座標請求
-                    coordinate = screen_tools_pb2.Coordinate(x=x, y=y, label="action_coord")
+                    coordinate = screen_tools_pb2.Coordinate(x=original_x, y=original_y, label="action_coord")
                     request = screen_tools_pb2.CoordinatesRequest(
                         coordinates=[coordinate],
                         action="save"
@@ -607,7 +638,9 @@ def screen_tools():
         nonlocal full_screenshot, tk_img
         # 重新擷取螢幕
         full_screenshot = pyautogui.screenshot()
-        tk_img = ImageTk.PhotoImage(full_screenshot)
+        # 重新縮放圖片
+        scaled_screenshot = full_screenshot.resize((window_width, window_height), Image.Resampling.LANCZOS)
+        tk_img = ImageTk.PhotoImage(scaled_screenshot)
         canvas.create_image(0, 0, anchor=tk.NW, image=tk_img)
         # 清除所有標記
         clear_rectangles()
@@ -626,7 +659,7 @@ def screen_tools():
     def add_mouse_action(action_type):
         """添加滑鼠動作到 server"""
         try:
-            # 使用 action_coord 座標
+            # 使用 action_coord 座標 (原始座標)
             if action_coord_x is not None and action_coord_y is not None:
                 x, y = action_coord_x, action_coord_y
             else:
@@ -665,7 +698,7 @@ def screen_tools():
     def add_keyboard_action(action_type):
         """添加鍵盤動作到 server"""
         try:
-            # 使用 action_coord 座標
+            # 使用 action_coord 座標 (原始座標)
             if action_coord_x is not None and action_coord_y is not None:
                 x, y = action_coord_x, action_coord_y
             else:
@@ -704,7 +737,7 @@ def screen_tools():
             print("需要先標記兩個點來定義 OCR 區域")
             return
 
-        # 計算矩形區域
+        # 計算矩形區域（使用原始座標）
         x1, y1 = point1
         x2, y2 = point2
         left = min(x1, x2)
@@ -712,7 +745,7 @@ def screen_tools():
         right = max(x1, x2)
         bottom = max(y1, y2)
 
-        # 從螢幕截圖中擷取區域
+        # 從原始螢幕截圖中擷取區域
         region_img = full_screenshot.crop((left, top, right, bottom))
 
         # 進行 OCR 辨識
@@ -729,6 +762,10 @@ def screen_tools():
             result_window = tk.Toplevel(root)
             result_window.title("OCR 辨識結果")
             result_window.geometry("600x500")
+
+            # 確保 OCR 視窗置頂
+            result_window.lift()
+            result_window.attributes("-topmost", True)
 
             # 原始文字
             original_label = tk.Label(result_window, text="原始文字:", font=("Arial", 10, "bold"))
@@ -830,8 +867,8 @@ def screen_tools():
 
     canvas.bind("<Button-3>", show_context_menu)  # 右鍵綁定
 
-    # 設定視窗大小為圖片大小
-    root.geometry(f"{full_screenshot.width}x{full_screenshot.height}")
+    # 設定視窗大小為縮放後的大小
+    root.geometry(f"{window_width}x{window_height}")
     root.resizable(False, False)
     root.attributes("-topmost", True)  # 確保視窗在最上層
 
